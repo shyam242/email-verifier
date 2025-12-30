@@ -1,65 +1,209 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import Papa from "papaparse";
+import { Upload, Download, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
+
+/* ================= TYPES ================= */
+type Row = {
+  name: string;
+  domain: string;
+  email?: string;
+  verified?: "verified" | "invalid" | "unknown";
+};
+
+type ApiResult = {
+  email: string;
+  score: number;
+  status: string;
+};
+
+type ApiResponse = {
+  results: ApiResult[];
+};
+/* ========================================= */
 
 export default function Home() {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [csvOut, setCsvOut] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  /* -------- Email Prediction -------- */
+  const predictEmail = (name: string, domain: string): string => {
+    if (!name || !domain) return "";
+    const clean = name.trim().toLowerCase().split(/\s+/).join(".");
+    return `${clean}@${domain.toLowerCase()}`;
+  };
+
+  /* -------- CSV Upload Handler -------- */
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse<Row>(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (res: Papa.ParseResult<Row>) => {
+        const predicted: Row[] = res.data.map((r) => ({
+          ...r,
+          email: r.email || predictEmail(r.name, r.domain),
+        }));
+
+        const emailsToVerify = predicted
+          .map((r) => r.email)
+          .filter(Boolean) as string[];
+
+        setLoading(true);
+        setProgress(30);
+
+        let apiData: ApiResponse = { results: [] };
+        try {
+          const response = await fetch("/api/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ emails: emailsToVerify }),
+          });
+          setProgress(70);
+          apiData = await response.json();
+        } catch {
+          apiData = { results: [] };
+        }
+
+        const finalRows: Row[] = predicted.map((r, i) => {
+          const result = apiData.results[i];
+          let verified: Row["verified"] = "unknown";
+          if (result && result.score > 50 && result.status === "VALID") {
+            verified = "verified";
+          } else if (result) {
+            verified = "invalid";
+          }
+          return { ...r, verified };
+        });
+
+        setRows(finalRows);
+        setCsvOut(Papa.unparse(finalRows));
+        setProgress(100);
+        setLoading(false);
+      },
+    });
+  };
+
+  /* -------- CSV Download -------- */
+  const downloadCSV = (onlyVerified = false) => {
+    const data = onlyVerified
+      ? rows.filter((r) => r.verified === "verified")
+      : rows;
+
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = onlyVerified
+      ? "verified_emails.csv"
+      : "all_predicted_emails.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const verifiedCount = rows.filter((r) => r.verified === "verified").length;
+  const invalidCount = rows.filter((r) => r.verified === "invalid").length;
+  const unknownCount = rows.filter((r) => r.verified === "unknown").length;
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-white p-8">
+      <div className="max-w-6xl mx-auto space-y-8">
+        {/* Header */}
+        <div className="flex justify-between items-center">
+          <h1 className="text-4xl font-bold">Email Intelligence</h1>
+          <span className="px-3 py-1 rounded-full bg-green-600 text-sm">Apollo-style MVP</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        {/* Upload Card */}
+        <div className="bg-slate-900/60 border border-slate-700 rounded-2xl p-8 text-center">
+          <label className="flex flex-col items-center gap-4 cursor-pointer">
+            <Upload size={40} className="text-blue-400" />
+            <p className="text-lg font-semibold">Upload CSV</p>
+            <p className="text-slate-400 text-sm">name, domain, email(optional)</p>
+            <input type="file" accept=".csv" onChange={handleFile} className="hidden" />
+          </label>
+        </div>
+
+        {/* Progress */}
+        {loading && (
+          <div className="w-full bg-slate-700 rounded-full h-3">
+            <div
+              className="bg-blue-500 h-3 rounded-full transition-all"
+              style={{ width: `${progress}%` }}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+          </div>
+        )}
+
+        {/* Stats */}
+        {rows.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-green-600/20 border border-green-600 rounded-xl p-4 flex items-center gap-3">
+              <CheckCircle /> Verified: {verifiedCount}
+            </div>
+            <div className="bg-red-600/20 border border-red-600 rounded-xl p-4 flex items-center gap-3">
+              <XCircle /> Invalid: {invalidCount}
+            </div>
+            <div className="bg-yellow-600/20 border border-yellow-600 rounded-xl p-4 flex items-center gap-3">
+              <AlertTriangle /> Unknown: {unknownCount}
+            </div>
+          </div>
+        )}
+
+        {/* Table */}
+        {rows.length > 0 && (
+          <div className="bg-slate-900/60 border border-slate-700 rounded-2xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-800 text-slate-300">
+                <tr>
+                  <th className="p-3 text-left">Name</th>
+                  <th className="p-3 text-left">Domain</th>
+                  <th className="p-3 text-left">Email</th>
+                  <th className="p-3 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-t border-slate-700 hover:bg-slate-800/60">
+                    <td className="p-3">{r.name}</td>
+                    <td className="p-3">{r.domain}</td>
+                    <td className="p-3">{r.email}</td>
+                    <td className="p-3">
+                      {r.verified === "verified" && <span className="text-green-400">Verified</span>}
+                      {r.verified === "invalid" && <span className="text-red-400">Invalid</span>}
+                      {r.verified === "unknown" && <span className="text-yellow-400">Unknown</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Download */}
+        {rows.length > 0 && (
+          <div className="flex flex-col md:flex-row gap-4">
+            <button
+              onClick={() => downloadCSV(false)}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl flex items-center gap-2"
+            >
+              <Download /> Export All
+            </button>
+
+            <button
+              onClick={() => downloadCSV(true)}
+              className="px-6 py-3 bg-green-600 hover:bg-green-500 rounded-xl flex items-center gap-2"
+            >
+              <Download /> Export Verified Only
+            </button>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
