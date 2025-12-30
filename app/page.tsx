@@ -116,8 +116,7 @@ export default function Home() {
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex justify-between items-center">
-          <h1 className="text-4xl font-bold">Email Intelligence</h1>
-          <span className="px-3 py-1 rounded-full bg-green-600 text-sm">Apollo-style MVP</span>
+          <h1 className="text-4xl font-bold">Email Prediction & Verification</h1>
         </div>
 
         {/* Upload Card */}
