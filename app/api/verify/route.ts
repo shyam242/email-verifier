@@ -1,36 +1,41 @@
 import { NextResponse } from "next/server";
 
-const ABSTRACT_API_KEY = process.env.ABSTRACT_API_KEY!;
+function safeJsonParse(text: string) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(req: Request) {
   try {
-    const { emails } = await req.json();
+    const body = await req.json();
+    const emails = body.emails;
 
-    if (!Array.isArray(emails) || emails.length === 0) {
+    if (!emails || !Array.isArray(emails) || emails.length === 0) {
       return NextResponse.json({ results: [] });
     }
 
-    const results: any[] = [];
-
-    for (const email of emails) {
-      try {
-        const res = await fetch(
-          `https://emailvalidation.abstractapi.com/v1/?api_key=${ABSTRACT_API_KEY}&email=${encodeURIComponent(
-            email
-          )}`
-        );
-
-        const data = await res.json();
-        results.push({ email, ...data });
-
-        // ✅ rate-limit protection (important)
-        await new Promise((r) => setTimeout(r, 1200));
-      } catch {
-        results.push({ email, error: true });
+    const res = await fetch(
+      "https://rapid-email-verifier.fly.dev/api/validate/batch",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emails }),
       }
+    );
+
+    const text = await res.text();
+    const parsed = safeJsonParse(text);
+
+    if (!parsed || !parsed.results) {
+      console.warn("Non-JSON or invalid response from verifier:", text);
+      return NextResponse.json({ results: [] });
     }
 
-    return NextResponse.json({ results });
+    return NextResponse.json(parsed);
+
   } catch (err) {
     console.error("VERIFY API ERROR:", err);
     return NextResponse.json({ results: [] });
