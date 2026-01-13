@@ -36,7 +36,7 @@ export default function Home() {
     return `${clean}@${domain.toLowerCase()}`;
   };
 
-  /* -------- CSV Upload Handler -------- */
+  /* -------- CSV Upload -------- */
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -44,13 +44,13 @@ export default function Home() {
     Papa.parse<Row>(file, {
       header: true,
       skipEmptyLines: true,
-      complete: async (res: Papa.ParseResult<Row>) => {
+      complete: async (res) => {
         const predicted: Row[] = res.data.map((r) => ({
           ...r,
           email: r.email || predictEmail(r.name, r.domain),
         }));
 
-        const emailsToVerify = predicted
+        const emails = predicted
           .map((r) => r.email)
           .filter(Boolean) as string[];
 
@@ -58,11 +58,12 @@ export default function Home() {
         setProgress(30);
 
         let apiData: ApiResponse = { results: [] };
+
         try {
           const response = await fetch("/api/verify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ emails: emailsToVerify }),
+            body: JSON.stringify({ emails }),
           });
           setProgress(70);
           apiData = await response.json();
@@ -84,7 +85,7 @@ export default function Home() {
         });
 
         setRows(finalRows);
-        setCsvOut(Papa.unparse(finalRows));
+        setCsvOut(Papa.unparse(finalRows)); // 🔥 CSV GENERATED HERE
         setProgress(100);
         setLoading(false);
       },
@@ -100,12 +101,14 @@ export default function Home() {
     const csv = Papa.unparse(data);
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
+
     const a = document.createElement("a");
     a.href = url;
     a.download = onlyVerified
       ? "verified_emails.csv"
-      : "all_predicted_emails.csv";
+      : "all_emails.csv";
     a.click();
+
     URL.revokeObjectURL(url);
   };
 
@@ -116,17 +119,15 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-white p-8">
       <div className="max-w-6xl mx-auto space-y-8">
-        <div className="flex justify-between items-center">
-          <h1 className="text-4xl font-bold">Email Prediction & Verification</h1>
-        </div>
+        <h1 className="text-4xl font-bold">
+          Email Prediction & Verification
+        </h1>
 
+        {/* Upload */}
         <div className="bg-slate-900/60 border border-slate-700 rounded-2xl p-8 text-center">
           <label className="flex flex-col items-center gap-4 cursor-pointer">
             <Upload size={40} className="text-blue-400" />
             <p className="text-lg font-semibold">Upload CSV</p>
-            <p className="text-slate-400 text-sm">
-              name, domain, email(optional)
-            </p>
             <input
               type="file"
               accept=".csv"
@@ -136,6 +137,7 @@ export default function Home() {
           </label>
         </div>
 
+        {/* Progress */}
         {loading && (
           <div className="w-full bg-slate-700 rounded-full h-3">
             <div
@@ -145,17 +147,37 @@ export default function Home() {
           </div>
         )}
 
+        {/* Stats */}
         {rows.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-green-600/20 border border-green-600 rounded-xl p-4 flex items-center gap-3">
+            <div className="bg-green-600/20 border border-green-600 rounded-xl p-4">
               <CheckCircle /> Verified: {verifiedCount}
             </div>
-            <div className="bg-red-600/20 border border-red-600 rounded-xl p-4 flex items-center gap-3">
+            <div className="bg-red-600/20 border border-red-600 rounded-xl p-4">
               <XCircle /> Invalid: {invalidCount}
             </div>
-            <div className="bg-yellow-600/20 border border-yellow-600 rounded-xl p-4 flex items-center gap-3">
+            <div className="bg-yellow-600/20 border border-yellow-600 rounded-xl p-4">
               <AlertTriangle /> Unknown: {unknownCount}
             </div>
+          </div>
+        )}
+
+        {/* 🔥 EXPORT BUTTONS (FIXED CONDITION) */}
+        {csvOut.length > 0 && (
+          <div className="flex gap-4">
+            <button
+              onClick={() => downloadCSV(false)}
+              className="px-6 py-3 bg-blue-600 rounded-xl flex items-center gap-2"
+            >
+              <Download /> Export All
+            </button>
+
+            <button
+              onClick={() => downloadCSV(true)}
+              className="px-6 py-3 bg-green-600 rounded-xl flex items-center gap-2"
+            >
+              <Download /> Export Verified Only
+            </button>
           </div>
         )}
       </div>
